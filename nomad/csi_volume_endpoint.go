@@ -17,7 +17,6 @@ import (
 type CSIVolume struct {
 	srv    *Server
 	logger log.Logger
-	// ctx    *RPCContext
 }
 
 // QueryACLObj looks up the ACL token in the request and returns the acl.ACL object
@@ -97,11 +96,17 @@ func (v *CSIVolume) List(args *structs.CSIVolumeListRequest, reply *structs.CSIV
 			// Query all volumes
 			var err error
 			var iter memdb.ResultIterator
-			if args.Driver != "" {
-				iter, err = state.CSIVolumesByDriver(ws, args.Driver)
-			} else {
+
+			if args.Namespace == "" {
 				iter, err = state.CSIVolumes(ws)
+			} else {
+				if args.Driver != "" {
+					iter, err = state.CSIVolumesByNSDriver(ws, args.Namespace, args.Driver)
+				} else {
+					iter, err = state.CSIVolumesByNS(ws, args.Namespace)
+				}
 			}
+
 			if err != nil {
 				return err
 			}
@@ -134,7 +139,7 @@ func (v *CSIVolume) List(args *structs.CSIVolumeListRequest, reply *structs.CSIV
 				}
 			}
 			reply.Volumes = vs
-			return v.srv.replyCSIVolumeIndex(state, &reply.QueryMeta)
+			return v.srv.replySetCSIVolumeIndex(state, &reply.QueryMeta)
 		}}
 	return v.srv.blockingRPC(&opts)
 }
@@ -157,21 +162,22 @@ func (v *CSIVolume) Get(args *structs.CSIVolumeGetRequest, reply *structs.CSIVol
 	metricsStart := time.Now()
 	defer metrics.MeasureSince([]string{"nomad", "volume", "get"}, metricsStart)
 
+	ns := args.RequestNamespace()
 	opts := blockingOptions{
 		queryOpts: &args.QueryOptions,
 		queryMeta: &reply.QueryMeta,
 		run: func(ws memdb.WatchSet, state *state.StateStore) error {
-			vol, err := state.CSIVolumeByID(ws, args.ID)
+			vol, err := state.CSIVolumeByID(ws, ns, args.ID)
 			if err != nil {
 				return err
 			}
 
-			if vol == nil || vol.Namespace != args.RequestNamespace() {
+			if vol == nil {
 				return structs.ErrMissingCSIVolumeID
 			}
 
 			reply.Volume = vol
-			return v.srv.replyCSIVolumeIndex(state, &reply.QueryMeta)
+			return v.srv.replySetCSIVolumeIndex(state, &reply.QueryMeta)
 		}}
 	return v.srv.blockingRPC(&opts)
 }
@@ -213,7 +219,7 @@ func (v *CSIVolume) Register(args *structs.CSIVolumeRegisterRequest, reply *stru
 		return err
 	}
 
-	return v.srv.replyCSIVolumeIndex(state, &reply.QueryMeta)
+	return v.srv.replySetCSIVolumeIndex(state, &reply.QueryMeta)
 }
 
 // Deregister removes a set of volumes
@@ -230,7 +236,8 @@ func (v *CSIVolume) Deregister(args *structs.CSIVolumeDeregisterRequest, reply *
 	metricsStart := time.Now()
 	defer metrics.MeasureSince([]string{"nomad", "volume", "deregister"}, metricsStart)
 
-	if !aclObj.AllowNsOp(args.RequestNamespace(), acl.NamespaceCapabilityCSICreateVolume) {
+	ns := args.RequestNamespace()
+	if !aclObj.AllowNsOp(ns, acl.NamespaceCapabilityCSICreateVolume) {
 		return structs.ErrPermissionDenied
 	}
 
@@ -240,10 +247,10 @@ func (v *CSIVolume) Deregister(args *structs.CSIVolumeDeregisterRequest, reply *
 		return err
 	}
 
-	err = state.CSIVolumeDeregister(index, args.VolumeIDs)
+	err = state.CSIVolumeDeregister(index, ns, args.VolumeIDs)
 	if err != nil {
 		return err
 	}
 
-	return v.srv.replyCSIVolumeIndex(state, &reply.QueryMeta)
+	return v.srv.replySetCSIVolumeIndex(state, &reply.QueryMeta)
 }
