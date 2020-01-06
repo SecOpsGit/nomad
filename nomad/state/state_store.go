@@ -1513,7 +1513,7 @@ func (s *StateStore) CSIVolumeRegister(index uint64, volumes []*structs.CSIVolum
 
 	for _, v := range volumes {
 		// Check for volume existence
-		_, obj, err := txn.FirstWatch("csi_volumes", "id", v.ID)
+		_, obj, err := txn.FirstWatch("csi_volumes", "id", v.Namespace, v.ID)
 		if err != nil {
 			return fmt.Errorf("volume existence check: %v", err)
 		}
@@ -1532,12 +1532,12 @@ func (s *StateStore) CSIVolumeRegister(index uint64, volumes []*structs.CSIVolum
 }
 
 // CSIVolumeByID is used to lookup a single volume
-func (s *StateStore) CSIVolumeByID(ws memdb.WatchSet, id string) (*structs.CSIVolume, error) {
+func (s *StateStore) CSIVolumeByID(ws memdb.WatchSet, namespace, id string) (*structs.CSIVolume, error) {
 	txn := s.db.Txn(false)
 
-	watchCh, obj, err := txn.FirstWatch("csi_volumes", "id", id)
+	watchCh, obj, err := txn.FirstWatch("csi_volumes", "id", namespace, id)
 	if err != nil {
-		return nil, fmt.Errorf("volume lookup failed: %s %v", id, err)
+		return nil, fmt.Errorf("volume lookup failed: %s %s %v", namespace, id, err)
 	}
 	ws.Add(watchCh)
 
@@ -1549,11 +1549,24 @@ func (s *StateStore) CSIVolumeByID(ws memdb.WatchSet, id string) (*structs.CSIVo
 	return nil, nil
 }
 
-// CSIVolumesByDriver is used to lookup volumes by driver
-func (s *StateStore) CSIVolumesByDriver(ws memdb.WatchSet, driver string) (memdb.ResultIterator, error) {
+// CSIVolumes looks up the entire csi_volumes table
+func (s *StateStore) CSIVolumesByNS(ws memdb.WatchSet, namespace string) (memdb.ResultIterator, error) {
 	txn := s.db.Txn(false)
 
-	iter, err := txn.Get("csi_volumes", "driver", driver)
+	iter, err := txn.Get("csi_volumes", "id_prefix", namespace)
+	if err != nil {
+		return nil, fmt.Errorf("volume lookup failed: %v", err)
+	}
+	ws.Add(iter.WatchCh())
+
+	return iter, nil
+}
+
+// CSIVolumes looks up the entire csi_volumes table
+func (s *StateStore) CSIVolumesByNSDriver(ws memdb.WatchSet, namespace, driver string) (memdb.ResultIterator, error) {
+	txn := s.db.Txn(false)
+
+	iter, err := txn.Get("csi_volumes", "driver_prefix", namespace, driver)
 	if err != nil {
 		return nil, fmt.Errorf("volume lookup failed: %v", err)
 	}
@@ -1576,16 +1589,16 @@ func (s *StateStore) CSIVolumes(ws memdb.WatchSet) (memdb.ResultIterator, error)
 }
 
 // CSIVolumeClaim updates the volume's claim count and allocation list
-func (s *StateStore) CSIVolumeClaim(index uint64, id string, alloc *structs.Allocation, claim structs.CSIVolumeClaimMode) error {
+func (s *StateStore) CSIVolumeClaim(index uint64, namespace, id string, alloc *structs.Allocation, claim structs.CSIVolumeClaimMode) error {
 	txn := s.db.Txn(true)
 	defer txn.Abort()
 
-	row, err := txn.First("csi_volumes", "id", id)
+	row, err := txn.First("csi_volumes", "id", namespace, id)
 	if err != nil {
-		return fmt.Errorf("volume lookup failed: %s: %v", id, err)
+		return fmt.Errorf("volume lookup failed: %s %s: %v", namespace, id, err)
 	}
 	if row == nil {
-		return fmt.Errorf("volume not found: %s", id)
+		return fmt.Errorf("volume not found: %s %s", namespace, id)
 	}
 
 	volume, ok := row.(*structs.CSIVolume)
@@ -1598,7 +1611,7 @@ func (s *StateStore) CSIVolumeClaim(index uint64, id string, alloc *structs.Allo
 	}
 
 	if err = txn.Insert("csi_volumes", volume); err != nil {
-		return fmt.Errorf("volume update failed: %s: %v", id, err)
+		return fmt.Errorf("volume update failed: %s %s: %v", namespace, id, err)
 	}
 
 	txn.Commit()
@@ -1606,21 +1619,22 @@ func (s *StateStore) CSIVolumeClaim(index uint64, id string, alloc *structs.Allo
 }
 
 // CSIVolumeDeregister removes the volume from the server
-func (s *StateStore) CSIVolumeDeregister(index uint64, ids []string) error {
+func (s *StateStore) CSIVolumeDeregister(index uint64, namespace string, ids []string) error {
 	txn := s.db.Txn(true)
 	defer txn.Abort()
 
 	for _, id := range ids {
-		existing, err := txn.First("csi_volumes", "id", id)
+		existing, err := txn.First("csi_volumes", "id", namespace, id)
 		if err != nil {
-			return fmt.Errorf("volume lookup failed: %s: %v", id, err)
+			return fmt.Errorf("volume lookup failed: %s %s: %v", namespace, id, err)
 		}
+
 		if existing == nil {
-			return fmt.Errorf("volume not found: %s", id)
+			return fmt.Errorf("volume not found: %s %s", namespace, id)
 		}
 
 		if err = txn.Delete("csi_volumes", existing); err != nil {
-			return fmt.Errorf("volume delete failed: %s: %v", id, err)
+			return fmt.Errorf("volume delete failed: %s %s: %v", namespace, id, err)
 		}
 	}
 
