@@ -1068,8 +1068,7 @@ func (n *nomadFSM) applyCSIVolumeRegister(buf []byte, index uint64) interface{} 
 	if err := structs.Decode(buf, &req); err != nil {
 		panic(fmt.Errorf("failed to decode request: %v", err))
 	}
-
-	// defer metrics.MeasureSince([]string{"nomad", "fsm", "apply_csi_volume_register"}, time.Now())
+	defer metrics.MeasureSince([]string{"nomad", "fsm", "apply_csi_volume_register"}, time.Now())
 
 	if err := n.state.CSIVolumeRegister(index, req.Volumes); err != nil {
 		n.logger.Error("CSIVolumeRegister failed", "error", err)
@@ -1084,10 +1083,9 @@ func (n *nomadFSM) applyCSIVolumeDeregister(buf []byte, index uint64) interface{
 	if err := structs.Decode(buf, &req); err != nil {
 		panic(fmt.Errorf("failed to decode request: %v", err))
 	}
+	defer metrics.MeasureSince([]string{"nomad", "fsm", "apply_csi_volume_deregister"}, time.Now())
 
-	// defer metrics.MeasureSince([]string{"nomad", "fsm", "apply_csi_volume_register"}, time.Now())
-
-	if err := n.state.CSIVolumeDeregister(index, req.VolumeIDs); err != nil {
+	if err := n.state.CSIVolumeDeregister(index, req.Namespace, req.VolumeIDs); err != nil {
 		n.logger.Error("CSIVolumeDeregister failed", "error", err)
 		return err
 	}
@@ -1100,8 +1098,9 @@ func (n *nomadFSM) applyCSIVolumeClaim(buf []byte, index uint64) interface{} {
 	if err := structs.Decode(buf, &req); err != nil {
 		panic(fmt.Errorf("failed to decode request: %v", err))
 	}
+	defer metrics.MeasureSince([]string{"nomad", "fsm", "apply_csi_volume_claim"}, time.Now())
 
-	if err := n.state.CSIVolumeClaim(index, req.VolumeID, req.Allocation, req.Claim); err != nil {
+	if err := n.state.CSIVolumeClaim(index, req.Namespace, req.VolumeID, req.Allocation, req.Claim); err != nil {
 		n.logger.Error("CSIVolumeClaim failed", "error", err)
 		return err
 	}
