@@ -265,6 +265,11 @@ func (q QueryOptions) AllowStaleRead() bool {
 	return q.AllowStale
 }
 
+type QueryPagination struct {
+	Limit  uint64
+	Offset uint64
+}
+
 type WriteRequest struct {
 	// The target region for this write
 	Region string

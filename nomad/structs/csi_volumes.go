@@ -229,12 +229,16 @@ type CSIVolumeClaimRequest struct {
 
 type CSIVolumeListRequest struct {
 	Driver string
+	Page   int
+	Size   int
 	QueryOptions
+	QueryPagination
 }
 
 type CSIVolumeListResponse struct {
 	Volumes []*CSIVolListStub
 	QueryMeta
+	QueryPagination
 }
 
 type CSIVolumeGetRequest struct {
